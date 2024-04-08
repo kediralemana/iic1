@@ -27,8 +27,17 @@
         </ion-item>
         }
 
-        @for (entry of entries; track entry.id) {
-        <div class="entry ion-padding-start ion-padding-top ion-padding-end" [id]="'entry-' + entry.id">
+        @if (hasEntriesToUpdate) {
+        <ion-card class="core-warning-card">
+            <ion-item>
+                <ion-icon name="fas-triangle-exclamation" slot="start" aria-hidden="true" />
+                <ion-label>{{ 'core.hasdatatosync' | translate:{$a: activityType} }}</ion-label>
+            </ion-item>
+        </ion-card>
+        }
+
+        @for (entry of entries; track entry.created) {
+        <div class="entry ion-padding-start ion-padding-top ion-padding-end" [id]="'entry-' + entry.created">
             <div class="entry-subject flex ion-text-wrap ion-justify-content-between ion-align-items-center">
                 <h3>
                     <core-format-text [text]="entry.subject" [contextLevel]="contextLevel" [contextInstanceId]="contextInstanceId"
@@ -36,6 +45,15 @@
                     @if (entry.userid === currentUserId && entry.publishTranslated === 'publishtonoone') {
                     <span class="entry-draft">
                         <ion-badge color="warning"> {{ 'addon.blog.publishtonoone' | translate }} </ion-badge>
+                    </span>
+                    }
+
+                    @if (!getEntryId(entry)) {
+                    <span class="entry-draft">
+                        <ion-badge color="light">
+                            <ion-icon name="fas-clock" [attr.aria-label]="'core.lastmodified' | translate" />
+                            {{ 'core.notsent' | translate }}
+                        </ion-badge>
                     </span>
                     }
                 </h3>
@@ -67,8 +85,8 @@
 
             <div class="entry-summary" [ngClass]="{ 'border-bottom': entry.lastmodified <= entry.created }" [collapsible-item]="64">
                 <div class="ion-margin-bottom">
-                    <core-format-text [text]="entry.summary" [component]="component" [componentId]="entry.id" [contextLevel]="contextLevel"
-                        [contextInstanceId]="contextInstanceId" [courseId]="entry.courseid" />
+                    <core-format-text [text]="entry.summary" [component]="component" [componentId]="getEntryId(entry) ?? entry.created"
+                        [contextLevel]="contextLevel" [contextInstanceId]="contextInstanceId" [courseId]="entry.courseid" />
                 </div>
 
                 @if (tagsEnabled && entry.tags && entry.tags!.length > 0) {
@@ -81,7 +99,7 @@
                 }
 
                 @for (file of entry.attachmentfiles; track $index) {
-                <core-file [file]="file" [component]="this.component" [componentId]="entry.id" />
+                <core-file [file]="file" [component]="this.component" [componentId]="getEntryId(entry) ?? entry.created" />
                 }
 
                 @if (entry.uniquehash) {
@@ -110,8 +128,8 @@
             </ion-item>
             }
 
-            @if (commentsEnabled) {
-            <core-comments [component]="this.component" [itemId]="entry.id" area="format_blog" [instanceId]="entry.userid"
+            @if (getEntryId(entry) && commentsEnabled) {
+            <core-comments [component]="this.component" [itemId]="getEntryId(entry)" area="format_blog" [instanceId]="entry.userid"
                 contextLevel="user" [showItem]="true" [courseId]="entry.courseid" />
             }
 
@@ -125,11 +143,13 @@
     </core-loading>
 
     <!-- Create a blog entry. -->
-    <ion-fab slot="fixed" core-fab vertical="bottom" horizontal="end" *ngIf="loaded && optionsAvailable">
+    @if ((filter.userid === currentUserId || showMyEntriesToggle) && loaded && optionsAvailable) {
+    <ion-fab slot="fixed" core-fab vertical="bottom" horizontal="end">
         <ion-fab-button (click)="createNewEntry()" [attr.aria-label]="'addon.blog.addnewentry' | translate">
             <ion-icon name="fas-pen-to-square" aria-hidden="true" />
             <span class="sr-only">{{ 'addon.blog.addnewentry' | translate }}</span>
         </ion-fab-button>
     </ion-fab>
+    }
 
 </ion-content>
