@@ -16,10 +16,12 @@ import { Injectable } from '@angular/core';
 import { CoreSiteWSPreSets } from '@classes/sites/authenticated-site';
 import { CoreSite } from '@classes/sites/site';
 import { CoreTagItem } from '@features/tag/services/tag';
+import { CoreNetwork } from '@services/network';
 import { CoreSites, CoreSitesCommonWSOptions } from '@services/sites';
 import { CoreUtils } from '@services/utils/utils';
 import { CoreStatusWithWarningsWSResponse, CoreWSExternalFile, CoreWSExternalWarning } from '@services/ws';
 import { makeSingleton } from '@singletons';
+import { AddonBlogOffline } from './blog-offline';
 
 const ROOT_CACHE_KEY = 'addonBlog:';
 
@@ -91,10 +93,24 @@ export class AddonBlogProvider {
      * @returns Entry id.
      * @since 4.4
      */
-    async addEntry(params: AddonBlogAddEntryWSParams, siteId?: string): Promise<number> {
+    async addEntry(
+        { created, ...params }: AddonBlogAddEntryWSParams & { created: number },
+        siteId?: string,
+    ): Promise<void> {
         const site = await CoreSites.getSite(siteId);
 
-        return await site.write<number>('core_blog_add_entry', params);
+        if (CoreNetwork.isOnline()) {
+            return await site.write('core_blog_add_entry', params);
+        }
+
+        await AddonBlogOffline.addOfflineEntry({
+            ...params,
+            userid: site.getUserId(),
+            lastmodified: created,
+            options: JSON.stringify(params.options),
+            action: 'created',
+            created,
+        });
     }
 
     /**
@@ -104,9 +120,31 @@ export class AddonBlogProvider {
      * @param siteId Site ID of the entry.
      * @since 4.4
      */
-    async updateEntry(params: AddonBlogUpdateEntryWSParams, siteId?: string): Promise<void> {
+    async updateEntry(
+        { created, ...params }: AddonBlogUpdateEntryWSParams & { attachments?: string; created: number },
+        siteId?: string,
+    ): Promise<void> {
         const site = await CoreSites.getSite(siteId);
-        await site.write('core_blog_update_entry', params);
+
+        if (CoreNetwork.isOnline()) {
+            await site.write('core_blog_update_entry', params);
+
+            return;
+        }
+
+        await AddonBlogOffline.updateOfflineEntry(
+            {
+                subject: params.subject,
+                summary: params.summary,
+                summaryformat: params.summaryformat,
+                created: created,
+                id: params.entryid,
+                userid: site.getUserId(),
+                lastmodified: new Date().getTime(),
+                options: JSON.stringify(params.options),
+                action: 'updated',
+            },
+        );
     }
 
     /**

@@ -22,6 +22,7 @@ import {
     AddonBlogProvider,
     AddonBlogPublishState,
 } from '@addons/blog/services/blog';
+import { AddonBlogOffline } from '@addons/blog/services/blog-offline';
 import { Component, OnInit } from '@angular/core';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
 import { CoreError } from '@classes/errors/error';
@@ -34,6 +35,7 @@ import { CoreFileUploader } from '@features/fileuploader/services/fileuploader';
 import { CoreTagComponentsModule } from '@features/tag/components/components.module';
 import { CanLeave } from '@guards/can-leave';
 import { CoreNavigator } from '@services/navigator';
+import { CoreNetwork } from '@services/network';
 import { CoreSites, CoreSitesReadingStrategy } from '@services/sites';
 import { CoreDomUtils } from '@services/utils/dom';
 import { CoreUtils } from '@services/utils/utils';
@@ -247,8 +249,15 @@ export class AddonBlogEditEntryPage implements CanLeave, OnInit {
 
         if (this.entry) {
             try {
+
+                if (!CoreNetwork.isOnline()) {
+                    const attachmentsId = await this.uploadOrStoreFiles(this.entry.id);
+
+                    return await this.saveEntry({ attachmentsId });
+                }
+
                 if (!CoreFileUploader.areFileListDifferent(this.files, this.initialFiles)) {
-                    return await this.saveEntry();
+                    return await this.saveEntry({ created: new Date().getTime() });
                 }
 
                 const { attachmentsid } = await AddonBlog.prepareEntryForEdition({ entryid: this.entry.id });
@@ -260,7 +269,7 @@ export class AddonBlogEditEntryPage implements CanLeave, OnInit {
 
                 await CoreFileUploader.uploadFiles(attachmentsid, this.files);
 
-                return await this.saveEntry(attachmentsid);
+                return await this.saveEntry({ attachmentsId: attachmentsid });
             } catch (error) {
                 CoreDomUtils.showErrorModalDefault(error, 'Error updating entry.');
             } finally {
@@ -271,16 +280,40 @@ export class AddonBlogEditEntryPage implements CanLeave, OnInit {
         }
 
         try {
+            const created = new Date().getTime();
+
             if (!this.files.length) {
-                return await this.saveEntry();
+                return await this.saveEntry({ created });
             }
 
-            const attachmentId = await CoreFileUploader.uploadOrReuploadFiles(this.files, this.component);
-            await this.saveEntry(attachmentId);
+            const attachmentsId = await this.uploadOrStoreFiles(created);
+            await this.saveEntry({ created, attachmentsId });
         } catch (error) {
             CoreDomUtils.showErrorModalDefault(error, 'Error creating entry.');
         } finally {
             await loading.dismiss();
+        }
+    }
+
+    /**
+     * Upload or store locally files.
+     *
+     * @param folder Folder where files will be located.
+     * @returns folder where files will be located.
+     */
+    async uploadOrStoreFiles(folder: number = new Date().getTime()): Promise<number> {
+        try {
+            if (CoreNetwork.isOnline()) {
+                return await CoreFileUploader.uploadOrReuploadFiles(this.files, this.component);
+            }
+
+            const folderPath = await AddonBlogOffline.getOfflineEntryFilesFolderPath(folder);
+            await CoreFileUploader.storeFilesToUpload(folderPath, this.files);
+
+            return folder;
+        } catch (error) {
+            CoreDomUtils.showErrorModalDefault(error, 'Error uploading files.');
+            throw error;
         }
     }
 
@@ -326,10 +359,10 @@ export class AddonBlogEditEntryPage implements CanLeave, OnInit {
     /**
      * Create or update entry.
      *
-     * @param attachmentsId Attachments.
+     * @param params Creation date and attachments ID.
      * @returns Promise resolved when done.
      */
-    async saveEntry(attachmentsId?: number): Promise<void> {
+    async saveEntry(params: { created?: number; attachmentsId?: number }): Promise<void> {
         const { summary, subject, publishState } = this.form.value;
 
         if (!summary || !subject || !publishState) {
@@ -342,11 +375,24 @@ export class AddonBlogEditEntryPage implements CanLeave, OnInit {
             { name: 'modassoc', value: this.form.controls.associateWithModule.value && this.modId ? this.modId : 0 },
         ];
 
-        this.addAttachments(attachmentsId, options);
+        this.addAttachments(params.attachmentsId, options);
 
         this.entry
-            ? await AddonBlog.updateEntry({ subject, summary, summaryformat: 1, options , entryid: this.entry.id })
-            : await AddonBlog.addEntry({ subject, summary, summaryformat: 1, options });
+            ? await AddonBlog.updateEntry({
+                subject,
+                summary,
+                summaryformat: 1,
+                options,
+                entryid: this.entry.id,
+                created: this.entry.created,
+            })
+            : await AddonBlog.addEntry({
+                subject,
+                summary,
+                summaryformat: 1,
+                options,
+                created: params.created ?? new Date().getTime(),
+            });
 
         CoreEvents.trigger(ADDON_BLOG_ENTRY_UPDATED);
         this.forceLeave = true;
